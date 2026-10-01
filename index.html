@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Multi-Report Dashboard</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--b:#1d6fcf;--bl:#dbeafe;--g:#16a34a;--r:#dc2626;--a:#d97706;--bg:#f8fafc;--c:#fff;--bd:#e2e8f0;--t:#1e293b;--m:#64748b;--l:#f1f5f9}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--t);padding:14px;font-size:14px}
+header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--c);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;margin-bottom:12px}
+header h1{font-size:16px;flex:1}
+.pill{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:var(--bl);color:var(--b)}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:var(--c);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.grp{display:flex;flex-direction:column;gap:4px;position:relative}
+.grp>label{font-size:11px;font-weight:600;color:var(--m);text-transform:uppercase;letter-spacing:.05em}
+button,input{font:inherit}
+.btn{padding:7px 14px;border:1.5px solid var(--bd);border-radius:7px;background:#fff;color:var(--m);font-weight:600;cursor:pointer;font-size:13px}
+.btn.on{background:var(--b);border-color:var(--b);color:#fff}
+.btn.p{background:var(--b);border-color:var(--b);color:#fff}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+input[type=date],input[type=password],input[type=text]{padding:6px 10px;border:1.5px solid var(--bd);border-radius:7px;font-size:13px}
+#menu{display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:50;background:#fff;border:1px solid var(--bd);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:280px;padding:8px}
+#menu.open{display:block}
+.mi{display:flex;gap:8px;align-items:center;padding:7px 8px;border-radius:6px;cursor:pointer}
+.mi:hover{background:var(--l)}
+.mh{display:flex;gap:6px;padding:2px 2px 8px;border-bottom:1px solid var(--bd);margin-bottom:6px;flex-wrap:wrap}
+.mh .btn{padding:3px 9px;font-size:11px}
+#status{font-size:12px;color:var(--m);margin-bottom:10px;min-height:16px}
+.rc{background:var(--c);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px}
+.rc h2{font-size:15px;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid var(--bd)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.cd{border:1px solid var(--bd);border-top:3px solid var(--b);border-radius:9px;padding:10px 12px}
+.cd small{display:block;font-size:10.5px;font-weight:600;color:var(--m);text-transform:uppercase}
+.cd b{font-size:18px}
+.sc{overflow:auto;max-height:480px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:var(--l);padding:7px 10px;text-align:left;font-size:11px;color:var(--m);text-transform:uppercase;position:sticky;top:0}
+td{padding:7px 10px;border-bottom:1px solid var(--l)}
+.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.tot td{font-weight:800;background:var(--l);border-top:2px solid var(--bd)}
+.neg{color:var(--r)}
+.warn{background:#fef3c7;border:1px solid #fcd34d;color:#92400e;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:10px}
+.mt{color:var(--m);text-align:center;padding:24px}
+.note{font-size:11.5px;color:var(--m);margin-top:8px}
+.ov{position:fixed;inset:0;background:linear-gradient(135deg,#0f172a,#1e293b);display:flex;align-items:center;justify-content:center;padding:20px;z-index:100}
+.ovc{background:#fff;border-radius:14px;padding:28px;max-width:400px;width:100%}
+.ovc h2{margin-bottom:6px}.ovc p{color:var(--m);font-size:13px;margin-bottom:14px}
+.ovc input{width:100%;margin-bottom:10px}
+.err{color:var(--r);font-size:12px;min-height:16px;margin-bottom:6px}
+details{margin-top:14px;font-size:12px;color:var(--m)}
+code{font-family:ui-monospace,monospace;font-size:11px;word-break:break-all}
+</style></head><body>
+
+<div class="ov" id="lock" style="display:none"><div class="ovc">
+  <h2>🔒 Dashboard Access</h2>
+  <p>Enter your access PIN to open the reports assigned to you.</p>
+  <input type="password" id="pin" placeholder="PIN" onkeydown="if(event.key==='Enter')unlock()">
+  <div class="err" id="lerr"></div>
+  <button class="btn p" style="width:100%" onclick="unlock()">Unlock</button>
+  <details><summary>Administrator: create a PIN hash</summary>
+    <p style="margin:8px 0">Type a PIN, copy the hash into <code>ACCESS.profiles</code> in the file.</p>
+    <input type="text" id="hin" placeholder="New PIN" oninput="mkHash()">
+    <code id="hout"></code>
+  </details>
+</div></div>
+
+<div id="app" style="display:none">
+  <header>
+    <h1>📊 Multi-Report Dashboard</h1>
+    <span class="pill" id="who"></span>
+    <button class="btn" onclick="reloadAll()">↺ Reload data</button>
+  </header>
+  <div class="bar">
+    <div class="grp"><label>Reports</label>
+      <button class="btn" id="mbtn" onclick="toggleMenu(event)">Select reports ▾</button>
+      <div id="menu"></div>
+    </div>
+    <div class="grp"><label>Period</label>
+      <div class="row" id="presets"></div>
+    </div>
+    <div class="grp"><label>From</label><input type="date" id="df"></div>
+    <div class="grp"><label>To</label><input type="date" id="dt"></div>
+    <button class="btn p" onclick="applyCustom()">Apply</button>
+  </div>
+  <div id="status"></div>
+  <div id="out"></div>
+</div>
+
+<script>
+/* ═══════════ ACCESS CONTROL (edit here) ═══════════
+   Each profile: a name, the SHA-256 hash of its PIN, and the report ids it may see.
+   Report ids: bank, cust, mov, stock, exp   ('*' = all reports)
+   Default PINs: Administrator = 1234 , Cashier = 0000  → CHANGE THEM.
+   Set enabled:false to open everything without a PIN.
+   NOTE: this is a front-end gate. Real enforcement is Manager's own user permissions. */
+const ACCESS={enabled:true,profiles:[
+  {name:'Administrator',pin:'03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4',reports:['*']},
+  {name:'Cashier',pin:'9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0',reports:['bank']}
+]};
+
+const REPORTS=[
+ {id:'bank',label:'🏦 Bank & Cash Balances',needs:['acct','rec','pay','xfer'],fn:()=>rBank()},
+ {id:'cust',label:'👥 Customer Sales, Receipts & Balances',needs:['cust','si','rec'],fn:()=>rCust()},
+ {id:'mov',label:'🔁 Inventory In & Out',needs:['si','pi','inv','non'],fn:()=>rMov()},
+ {id:'stock',label:'📦 Inventory On Hand & Locations',needs:['si','pi','inv','non','loc'],fn:()=>rStock()},
+ {id:'exp',label:'💸 Expenses',needs:['pay','pi','pl'],fn:()=>rExp()}
+];
+/* Manager API list endpoints (read-only). Several candidates are tried where naming may vary. */
+const EP={
+ acct:['bank-or-cash-account-batch','bank-account-batch','cash-account-batch'],
+ rec:['receipt-batch'],pay:['payment-batch'],xfer:['inter-account-transfer-batch'],
+ si:['sales-invoice-batch'],pi:['purchase-invoice-batch'],cust:['customer-batch'],
+ inv:['inventory-item-batch'],non:['non-inventory-item-batch'],
+ loc:['inventory-location-batch'],pl:['profit-and-loss-statement-account-batch']
+};
+
+/* ═══════════ helpers ═══════════ */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=n=>Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+async function sha(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+async function mkHash(){const v=$('#hin').value;$('#hout').textContent=v?await sha(v):''}
+
+let ORIGIN=null;
+function api(path){return new Promise((res,rej)=>{
+ if(!/^\/api4\/[a-z-]+-batch\?[A-Za-z0-9=&%._~!*()-]*$/.test(path))return rej(new Error('Blocked path'));
+ const id=crypto.randomUUID();
+ const t=setTimeout(()=>{removeEventListener('message',h);rej(new Error('Timeout — is this running inside Manager?'))},20000);
+ function h(e){if(e.source!==parent)return;if(ORIGIN&&e.origin!==ORIGIN)return;const d=e.data;
+  if(d&&String(d.type).endsWith('-response')&&d.requestId===id){clearTimeout(t);removeEventListener('message',h);ORIGIN=ORIGIN||e.origin;res(d.body)}}
+ addEventListener('message',h);
+ parent.postMessage({type:'api-request',method:'GET',path,requestId:id},'*');
+})}
+async function batch(ep){let all=[],tok=null,n=0;
+ do{const d=await api(`/api4/${ep}?PageSize=99999`+(tok?'&next_page_token='+encodeURIComponent(tok):''));
+  if(d&&!Array.isArray(d)&&!d.items&&(d.error||d.message))throw new Error(d.error||d.message);
+  all.push(...(Array.isArray(d)?d:d.items||[]));tok=(d&&(d.next_page_token||d.nextPageToken))||null;
+ }while(tok&&++n<500);return all}
+
+/* ═══════════ data ═══════════ */
+let D={},ERR={},NAMES={},PL=new Set();
+const ff=a=>a.item&&typeof a.item==='object'?a.item:a;
+const nm=k=>NAMES[k]||'';
+function idx(el){const f=ff(el),n=f.name||f.itemName||f.nameWithCode||f.text;if(!n)return;
+ for(const i of[el.key,el.id,f.key,f.id])if(i)NAMES[i]=n}
+async function load(name){
+ if(D[name])return;const out=[],seen=new Set(),errs=[];
+ for(const ep of EP[name]){try{for(const x of await batch(ep)){const k=x.key||Math.random();if(!seen.has(k)){seen.add(k);out.push(x)}}}catch(e){errs.push(ep+': '+e.message)}}
+ D[name]=out;if(!out.length&&errs.length)ERR[name]=errs.join(' | ');
+ if(['acct','cust','inv','non','loc','pl'].includes(name))out.forEach(idx);
+ if(name==='pl')out.forEach(el=>{[el.key,ff(el).key].forEach(k=>k&&PL.add(k))});
+}
+function reloadAll(){D={};ERR={};NAMES={};PL=new Set();go()}
+
+/* ═══════════ amounts & dates ═══════════ */
+const dt=it=>String(it.date||it.issueDate||'').slice(0,10);
+const fxv=(it,v)=>{const r=Number(it.exchangeRate)||0;return r>0&&r!==1?(it.exchangeRateIsInverse?v/r:v*r):v};
+const lineAmt=(l,pk)=>{const q=Number(l.qty)||0,p=Number(l[pk])||0;let d=Number(l.discountAmount)||0;
+ if(!d&&l.discountPercentage)d=q*p*Number(l.discountPercentage)/100;return q&&p?q*p-d:Number(l.amount)||0};
+const docAmt=(it,pk)=>{const L=it.lines||[];return fxv(it,L.length?L.reduce((s,l)=>s+lineAmt(l,pk),0):Number(it.amount)||0)};
+let F='',T='',preset='month';
+
+/* ═══════════ rendering helpers ═══════════ */
+function cards(a){return`<div class="cards">${a.map(([l,v])=>`<div class="cd"><small>${l}</small><b class="${v<0?'neg':''}">${fmt(v)}</b></div>`).join('')}</div>`}
+function tbl(h,rows,tot){
+ const num=i=>rows.length?typeof rows[0][i]==='number':i>0;
+ const c=v=>typeof v==='number'?`<td class="n ${v<0?'neg':''}">${fmt(v)}</td>`:`<td>${esc(v)}</td>`;
+ return`<div class="sc"><table><thead><tr>${h.map((x,i)=>`<th${num(i)?' class="n"':''}>${x}</th>`).join('')}</tr></thead><tbody>${
+  rows.map(r=>`<tr>${r.map(c).join('')}</tr>`).join('')||`<tr><td colspan="${h.length}" class="mt">No data for this period</td></tr>`}${tot?`<tr class="tot">${tot.map(c).join('')}</tr>`:''}</tbody></table></div>`}
+const sum=(rows,i)=>rows.reduce((s,r)=>s+r[i],0);
+
+/* ═══════════ reports ═══════════ */
+function rBank(){
+ const A={};const g=(k)=>A[k]||(A[k]={n:nm(k)||'Account '+String(k).slice(0,6),o:0,b:0,i:0,u:0});
+ D.acct.forEach(a=>{g(a.key).o=Number(ff(a).openingBalance)||0});
+ const add=(k,d,v)=>{if(!k||!d||d>T)return;const a=g(k);if(d<F)a.b+=v;else if(v>=0)a.i+=v;else a.u-=v};
+ D.rec.forEach(x=>{const it=x.item||x;add(it.receivedIn||it.bankAccount||it.account,dt(it),docAmt(it))});
+ D.pay.forEach(x=>{const it=x.item||x;add(it.paidFrom||it.bankAccount||it.account,dt(it),-docAmt(it))});
+ D.xfer.forEach(x=>{const it=x.item||x,d=dt(it),deb=Number(it.debitAmount??it.amount)||0,cre=Number(it.creditAmount??it.debitAmount??it.amount)||0;
+  add(it.paidFrom,d,-deb);add(it.receivedIn,d,cre)});
+ const rows=Object.values(A).map(a=>[a.n,a.o+a.b,a.i,a.u,a.o+a.b+a.i-a.u]).filter(r=>r.slice(1).some(v=>v))
+  .sort((x,y)=>y[4]-x[4]);
+ return cards([['Closing balance',sum(rows,4)],['Money in',sum(rows,2)],['Money out',sum(rows,3)]])+
+  tbl(['Account','Opening','Received','Paid','Closing'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3),sum(rows,4)])+
+  `<div class="note">Closing = opening balance + receipts + incoming transfers − payments − outgoing transfers, up to the "To" date.</div>`}
+
+function rCust(){
+ const C={};const g=k=>C[k]||(C[k]={n:nm(k)||'Unspecified customer',s:0,r:0,b:0});
+ D.cust.forEach(c=>{g(c.key).b+=Number(ff(c).openingBalance)||0});
+ D.si.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d>T)return;
+  const k=typeof it.customer==='object'?it.customer?.key:it.customer,v=docAmt(it,'salesUnitPrice'),c=g(k||'?');c.b+=v;if(d>=F)c.s+=v});
+ D.rec.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d>T)return;
+  (it.lines||[]).forEach(l=>{const k=l.accountsReceivableCustomer;if(!k)return;const v=fxv(it,Number(l.amount)||0),c=g(k);c.b-=v;if(d>=F)c.r+=v})});
+ const rows=Object.values(C).map(c=>[c.n,c.s,c.r,c.b]).filter(r=>r.slice(1).some(v=>Math.abs(v)>0.004)).sort((a,b)=>b[3]-a[3]);
+ return cards([['Sales (period)',sum(rows,1)],['Receipts (period)',sum(rows,2)],['Outstanding balance',sum(rows,3)]])+
+  tbl(['Customer','Sales','Receipts','Balance at "To" date'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3)])+
+  `<div class="note">Balance = opening + all invoices − all customer receipts up to the "To" date. Credit notes are not included.</div>`}
+
+function rMov(){
+ const M={};const g=k=>M[k]||(M[k]={n:nm(k)||'Item '+String(k).slice(0,6),iq:0,iv:0,oq:0,ov:0});
+ const run=(docs,pk,inn)=>docs.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d<F||d>T)return;
+  (it.lines||[]).forEach(l=>{if(!l.item)return;const q=Number(l.qty)||0,v=fxv(it,lineAmt(l,pk)),m=g(l.item);
+   if(inn){m.iq+=q;m.iv+=v}else{m.oq+=q;m.ov+=v}})});
+ run(D.pi,'purchaseUnitPrice',1);run(D.si,'salesUnitPrice',0);
+ const rows=Object.values(M).map(m=>[m.n,m.iq,m.iv,m.oq,m.ov,m.iq-m.oq]).sort((a,b)=>(b[1]+b[3])-(a[1]+a[3]));
+ return cards([['Qty in',sum(rows,1)],['Qty out',sum(rows,3)],['Net movement',sum(rows,5)]])+
+  tbl(['Item','Qty in','Value in','Qty out','Value out','Net qty'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3),sum(rows,4),sum(rows,5)])+
+  `<div class="note">In = purchase invoices, Out = sales invoices (item lines only).</div>`}
+
+function rStock(){
+ const S={};
+ const run=(docs,pk,inn)=>docs.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d>T)return;
+  (it.lines||[]).forEach(l=>{if(!l.item)return;const L=l.location||l.inventoryLocation||l.warehouse||'',id=l.item+'|'+L;
+   const m=S[id]||(S[id]={n:nm(l.item)||'Item '+String(l.item).slice(0,6),l:L?(nm(L)||String(L).slice(0,8)):'—',q:0,pq:0,pv:0}),q=Number(l.qty)||0;
+   if(inn){m.q+=q;m.pq+=q;m.pv+=fxv(it,lineAmt(l,pk))}else m.q-=q})});
+ run(D.pi,'purchaseUnitPrice',1);run(D.si,'salesUnitPrice',0);
+ const rows=Object.values(S).filter(m=>Math.abs(m.q)>0.0001).map(m=>{const a=m.pq?m.pv/m.pq:0;return[m.n,m.l,m.q,a,m.q*a]}).sort((a,b)=>b[4]-a[4]);
+ return cards([['Units on hand',sum(rows,2)],['Stock value (avg cost)',sum(rows,4)]])+
+  tbl(['Item','Location','On hand','Avg cost','Value'],rows,['Total','',sum(rows,2),'',sum(rows,4)])+
+  `<div class="note">Derived from purchase and sales invoices up to the "To" date. Opening stock and manual adjustments are not included.</div>`}
+
+const BAD=['accountsReceivableCustomer','accountsPayableSupplier','capitalAccount','employee','fixedAsset','intangibleAsset','investment','interAccountTransferAccount','purchaseInvoice','accountsReceivableSalesInvoice','subAccount','specialAccount'];
+function rExp(){
+ const E={};
+ const add=(it,l,s)=>{const k=l.account;if(!k||BAD.some(b=>l[b]))return;if(D.pl.length&&!PL.has(k))return;
+  const v=fxv(it,Number(l.amount)||lineAmt(l,'purchaseUnitPrice')),e=E[k]||(E[k]={n:nm(k)||'Account '+String(k).slice(0,6),p:0,i:0});e[s]+=v};
+ D.pay.forEach(x=>{const it=x.item||x,d=dt(it);if(d>=F&&d<=T)(it.lines||[]).forEach(l=>add(it,l,'p'))});
+ D.pi.forEach(x=>{const it=x.item||x,d=dt(it);if(d>=F&&d<=T)(it.lines||[]).forEach(l=>{if(!l.item)add(it,l,'i')})});
+ const rows=Object.values(E).map(e=>[e.n,e.p,e.i,e.p+e.i]).sort((a,b)=>b[3]-a[3]);
+ return cards([['Total expenses',sum(rows,3)],['Paid directly',sum(rows,1)],['Via purchase invoices',sum(rows,2)]])+
+  tbl(['Expense account','Paid directly','Purchase invoices','Total'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3)])}
+
+/* ═══════════ UI state ═══════════ */
+let PROFILE=null,sel=new Set(['bank']),mode='multi';
+const allowed=id=>PROFILE.reports.includes('*')||PROFILE.reports.includes(id);
+const avail=()=>REPORTS.filter(r=>allowed(r.id));
+const active=()=>avail().filter(r=>sel.has(r.id));
+
+function drawMenu(){
+ const m=$('#menu');
+ m.innerHTML=`<div class="mh">
+  <button class="btn ${mode==='single'?'on':''}" onclick="setMode('single',event)">Single</button>
+  <button class="btn ${mode==='multi'?'on':''}" onclick="setMode('multi',event)">Multiple</button>
+  ${mode==='multi'?`<button class="btn" onclick="selAll(event)">All</button><button class="btn" onclick="selNone(event)">Clear</button>`:''}</div>`+
+  avail().map(r=>`<div class="mi" onclick="pick('${r.id}',event)"><input type="${mode==='single'?'radio':'checkbox'}" ${sel.has(r.id)?'checked':''} style="pointer-events:none"> ${r.label}</div>`).join('');
+ const n=active().length;
+ $('#mbtn').textContent=(n===0?'Select reports':n===1?active()[0].label:n+' reports selected')+' ▾';
+}
+function toggleMenu(e){e.stopPropagation();$('#menu').classList.toggle('open')}
+document.addEventListener('click',e=>{if(!e.target.closest('#menu'))$('#menu').classList.remove('open')});
+function setMode(m,e){e.stopPropagation();mode=m;if(m==='single'&&sel.size>1)sel=new Set([[...sel][0]]);drawMenu();go()}
+function selAll(e){e.stopPropagation();sel=new Set(avail().map(r=>r.id));drawMenu();go()}
+function selNone(e){e.stopPropagation();sel=new Set();drawMenu();go()}
+function pick(id,e){e.stopPropagation();
+ if(mode==='single'){sel=new Set([id]);$('#menu').classList.remove('open')}
+ else sel.has(id)?sel.delete(id):sel.add(id);
+ drawMenu();go()}
+
+const PRESETS=[['today','Today'],['yesterday','Yesterday'],['week','This week'],['month','This month']];
+function drawPresets(){$('#presets').innerHTML=PRESETS.map(([k,l])=>`<button class="btn ${preset===k?'on':''}" onclick="setPreset('${k}')">${l}</button>`).join('')+
+ `<button class="btn ${preset==='custom'?'on':''}" onclick="applyCustom()">Custom</button>`}
+function setPreset(p){
+ const n=new Date(),d=new Date(n.getFullYear(),n.getMonth(),n.getDate());preset=p;
+ if(p==='today'){F=T=iso(d)}
+ else if(p==='yesterday'){d.setDate(d.getDate()-1);F=T=iso(d)}
+ else if(p==='week'){const w=(d.getDay()+6)%7;const s=new Date(d);s.setDate(d.getDate()-w);F=iso(s);T=iso(d)}
+ else{F=iso(new Date(d.getFullYear(),d.getMonth(),1));T=iso(d)}
+ $('#df').value=F;$('#dt').value=T;drawPresets();go()}
+function applyCustom(){
+ const f=$('#df').value,t=$('#dt').value;
+ if(!f||!t){$('#status').textContent='⚠ Pick both From and To dates.';return}
+ if(f>t){$('#status').textContent='⚠ "From" date is after "To" date.';return}
+ preset='custom';F=f;T=t;drawPresets();go()}
+
+let busy=false,again=false;
+async function go(){
+ if(busy){again=true;return}busy=true;
+ try{
+  const act=active();
+  const need=[...new Set(act.flatMap(r=>r.needs))].filter(n=>!D[n]);
+  for(let i=0;i<need.length;i++){$('#status').textContent=`Loading ${need[i]} (${i+1}/${need.length})…`;await load(need[i])}
+  $('#status').textContent=`Showing ${F===T?F:F+' → '+T}`;
+  $('#out').innerHTML=act.length?act.map(r=>{
+   let body;try{body=r.fn()}catch(e){body=`<div class="warn">⚠ ${esc(e.message)}</div>`}
+   const er=r.needs.map(n=>ERR[n]).filter(Boolean);
+   return`<div class="rc"><h2>${r.label}</h2>${er.length?`<div class="warn">⚠ Some data could not be loaded (check this user's Manager permissions or endpoint names): ${esc(er.join(' · '))}</div>`:''}${body}</div>`}).join('')
+   :'<div class="mt">Choose one or more reports from the dropdown.</div>';
+ }catch(e){$('#status').textContent='⚠ '+e.message}
+ busy=false;if(again){again=false;go()}
+}
+
+/* ═══════════ start-up & unlock ═══════════ */
+function start(p){
+ PROFILE=p;$('#lock').style.display='none';$('#app').style.display='';
+ $('#who').textContent='👤 '+p.name;
+ sel=new Set([...sel].filter(allowed));if(!sel.size&&avail()[0])sel.add(avail()[0].id);
+ drawMenu();setPreset('month');
+}
+async function unlock(){
+ const h=await sha($('#pin').value);
+ const p=ACCESS.profiles.find(x=>x.pin===h);
+ if(p)start(p);else{$('#lerr').textContent='Incorrect PIN';$('#pin').value=''}
+}
+if(parent===window){
+ document.body.innerHTML='<div style="max-width:520px;margin:60px auto;text-align:center;font-family:system-ui"><h2>🧩 Manager.io Extension</h2><p style="color:#64748b;margin-top:8px">Open this page through Manager.io → Settings → Extensions (add its URL as the endpoint).</p></div>';
+}else if(ACCESS.enabled){$('#lock').style.display='flex';$('#pin').focus()}
+else start({name:'Full access',reports:['*']});
+</script>
+</body></html>
