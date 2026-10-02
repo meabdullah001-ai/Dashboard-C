@@ -101,16 +101,16 @@ const ACCESS={enabled:true,profiles:[
 
 const REPORTS=[
  {id:'bank',label:'🏦 Bank & Cash Balances',needs:['acct','rec','pay','xfer'],fn:()=>rBank()},
- {id:'cust',label:'👥 Customer Sales, Receipts & Balances',needs:['cust','si','rec'],fn:()=>rCust()},
- {id:'mov',label:'🔁 Inventory In & Out',needs:['si','pi','inv','non'],fn:()=>rMov()},
- {id:'stock',label:'📦 Inventory On Hand & Locations',needs:['si','pi','inv','non','loc'],fn:()=>rStock()},
- {id:'exp',label:'💸 Expenses',needs:['pay','pi','pl'],fn:()=>rExp()}
+ {id:'cust',label:'👥 Customer Sales, Receipts & Balances',needs:['cust','si','rec','cn'],fn:()=>rCust()},
+ {id:'mov',label:'🔁 Inventory In & Out',needs:['pay','si','inv','non'],fn:()=>rMov()},
+ {id:'stock',label:'📦 Inventory On Hand & Locations',needs:['inv','loc'],fn:()=>rStock()},
+ {id:'exp',label:'💸 Expenses',needs:['pay','pl','bs'],fn:()=>rExp()}
 ];
 /* Manager API list endpoints (read-only). Several candidates are tried where naming may vary. */
 const EP={
  acct:['bank-or-cash-account-batch','bank-account-batch','cash-account-batch'],
  rec:['receipt-batch'],pay:['payment-batch'],xfer:['inter-account-transfer-batch'],
- si:['sales-invoice-batch'],pi:['purchase-invoice-batch'],cust:['customer-batch'],
+ si:['sales-invoice-batch'],cn:['sales-credit-note-batch','credit-note-batch'],bs:['balance-sheet-account-batch'],cust:['customer-batch'],
  inv:['inventory-item-batch'],non:['non-inventory-item-batch'],
  loc:['inventory-location-batch'],pl:['profit-and-loss-statement-account-batch']
 };
@@ -149,7 +149,7 @@ async function load(name){
  if(D[name])return;const out=[],seen=new Set(),errs=[];
  for(const ep of EP[name]){try{for(const x of await batch(ep)){const k=x.key||Math.random();if(!seen.has(k)){seen.add(k);out.push(x)}}}catch(e){errs.push(ep+': '+e.message)}}
  D[name]=out;if(!out.length&&errs.length)ERR[name]=errs.join(' | ');
- if(['acct','cust','inv','non','loc','pl'].includes(name))out.forEach(idx);
+ if(['acct','cust','inv','non','loc','pl','bs'].includes(name))out.forEach(idx);
  if(name==='pl')out.forEach(el=>{[el.key,ff(el).key].forEach(k=>k&&PL.add(k))});
 }
 function reloadAll(){D={};ERR={};NAMES={};PL=new Set();go()}
@@ -157,9 +157,11 @@ function reloadAll(){D={};ERR={};NAMES={};PL=new Set();go()}
 /* ═══════════ amounts & dates ═══════════ */
 const dt=it=>String(it.date||it.issueDate||'').slice(0,10);
 const fxv=(it,v)=>{const r=Number(it.exchangeRate)||0;return r>0&&r!==1?(it.exchangeRateIsInverse?v/r:v*r):v};
-const lineAmt=(l,pk)=>{const q=Number(l.qty)||0,p=Number(l[pk])||0;let d=Number(l.discountAmount)||0;
- if(!d&&l.discountPercentage)d=q*p*Number(l.discountPercentage)/100;return q&&p?q*p-d:Number(l.amount)||0};
-const docAmt=(it,pk)=>{const L=it.lines||[];return fxv(it,L.length?L.reduce((s,l)=>s+lineAmt(l,pk),0):Number(it.amount)||0)};
+const upKey=l=>Object.keys(l).find(k=>/UnitPrice$/.test(k)&&Number(l[k]));
+const lineAmt=(l,pk)=>{const k=Number(l[pk])?pk:upKey(l),p=k?Number(l[k]):0;
+ if(p){const q=Number(l.qty)||1;let d=Number(l.discountAmount)||0;if(!d&&l.discountPercentage)d=q*p*Number(l.discountPercentage)/100;return q*p-d}
+ return Number(l.amount)||0};
+const docAmt=(it,pk)=>{const L=it.lines||[];return fxv(it,L.length?L.reduce((a,l)=>a+lineAmt(l,pk),0):(Number(it.amount)||Number(it.total)||0))};
 let F='',T='',preset='month';
 
 /* ═══════════ rendering helpers ═══════════ */
@@ -172,65 +174,86 @@ function tbl(h,rows,tot){
 const sum=(rows,i)=>rows.reduce((s,r)=>s+r[i],0);
 
 /* ═══════════ reports ═══════════ */
+const kset=a=>new Set(a.map(x=>x.key).filter(Boolean));
+const scan=(o,set)=>{for(const v of Object.values(o))if(typeof v==='string'&&set.has(v))return v;return null};
+const keyOf=v=>v&&typeof v==='object'?v.key:v;
+const num1=(o,ks)=>{for(const k of ks)if(typeof o[k]==='number')return o[k];return undefined};
+const itemK=l=>keyOf(l.item||l.inventoryItem||l.itemKey)||null;
+const QUIET=['cn','bs','loc','non','xfer'];
+
 function rBank(){
- const A={};const g=(k)=>A[k]||(A[k]={n:nm(k)||'Account '+String(k).slice(0,6),o:0,b:0,i:0,u:0});
- D.acct.forEach(a=>{g(a.key).o=Number(ff(a).openingBalance)||0});
- const add=(k,d,v)=>{if(!k||!d||d>T)return;const a=g(k);if(d<F)a.b+=v;else if(v>=0)a.i+=v;else a.u-=v};
- D.rec.forEach(x=>{const it=x.item||x;add(it.receivedIn||it.bankAccount||it.account,dt(it),docAmt(it))});
- D.pay.forEach(x=>{const it=x.item||x;add(it.paidFrom||it.bankAccount||it.account,dt(it),-docAmt(it))});
+ const AS=kset(D.acct),A={};
+ const g=k=>A[k]||(A[k]={n:nm(k)||'Account '+String(k).slice(0,6),cur:undefined,op:0,bef:0,frm:0,i:0,u:0});
+ D.acct.forEach(a=>{const f=ff(a),x=g(a.key);x.cur=num1(f,['balance','currentBalance','actualBalance'])??num1(a,['balance']);x.op=Number(f.openingBalance)||0});
+ const pick=(it,f)=>{const v=keyOf(it[f]);return v&&AS.has(v)?v:scan(it,AS)};
+ const add=(k,d,v)=>{if(!k||!d)return;const a=g(k);if(d<F)a.bef+=v;else{a.frm+=v;if(d<=T){v>=0?a.i+=v:a.u-=v}}};
+ D.rec.forEach(x=>{const it=x.item||x;add(pick(it,'receivedIn'),dt(it),docAmt(it))});
+ D.pay.forEach(x=>{const it=x.item||x;add(pick(it,'paidFrom'),dt(it),-docAmt(it))});
  D.xfer.forEach(x=>{const it=x.item||x,d=dt(it),deb=Number(it.debitAmount??it.amount)||0,cre=Number(it.creditAmount??it.debitAmount??it.amount)||0;
-  add(it.paidFrom,d,-deb);add(it.receivedIn,d,cre)});
- const rows=Object.values(A).map(a=>[a.n,a.o+a.b,a.i,a.u,a.o+a.b+a.i-a.u]).filter(r=>r.slice(1).some(v=>v))
-  .sort((x,y)=>y[4]-x[4]);
- return cards([['Closing balance',sum(rows,4)],['Money in',sum(rows,2)],['Money out',sum(rows,3)]])+
-  tbl(['Account','Opening','Received','Paid','Closing'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3),sum(rows,4)])+
-  `<div class="note">Closing = opening balance + receipts + incoming transfers − payments − outgoing transfers, up to the "To" date.</div>`}
+  add(pick(it,'paidFrom'),d,-deb);add(pick(it,'receivedIn'),d,cre)});
+ const rows=Object.values(A).map(a=>{const o=a.cur!==undefined?a.cur-a.frm:a.op+a.bef;return[a.n,o,a.i,a.u,o+a.i-a.u]})
+  .filter(r=>r.slice(1).some(v=>Math.abs(v)>0.004)).sort((x,y)=>y[4]-x[4]);
+ return cards([['Opening (day before From)',sum(rows,1)],['Received',sum(rows,2)],['Paid',sum(rows,3)],['Closing',sum(rows,4)]])+
+  tbl(['Account','Opening balance','Received','Paid','Closing balance'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3),sum(rows,4)])+
+  `<div class="note">Opening = Manager's balance for the account minus all movements from the From date onward (i.e. the previous day's balance). Received/Paid = receipts and payments dated within the period.</div>`}
 
 function rCust(){
- const C={};const g=k=>C[k]||(C[k]={n:nm(k)||'Unspecified customer',s:0,r:0,b:0});
- D.cust.forEach(c=>{g(c.key).b+=Number(ff(c).openingBalance)||0});
- D.si.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d>T)return;
-  const k=typeof it.customer==='object'?it.customer?.key:it.customer,v=docAmt(it,'salesUnitPrice'),c=g(k||'?');c.b+=v;if(d>=F)c.s+=v});
- D.rec.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d>T)return;
-  (it.lines||[]).forEach(l=>{const k=l.accountsReceivableCustomer;if(!k)return;const v=fxv(it,Number(l.amount)||0),c=g(k);c.b-=v;if(d>=F)c.r+=v})});
- const rows=Object.values(C).map(c=>[c.n,c.s,c.r,c.b]).filter(r=>r.slice(1).some(v=>Math.abs(v)>0.004)).sort((a,b)=>b[3]-a[3]);
- return cards([['Sales (period)',sum(rows,1)],['Receipts (period)',sum(rows,2)],['Outstanding balance',sum(rows,3)]])+
-  tbl(['Customer','Sales','Receipts','Balance at "To" date'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3)])+
-  `<div class="note">Balance = opening + all invoices − all customer receipts up to the "To" date. Credit notes are not included.</div>`}
+ const CK=kset(D.cust),C={},siC={};
+ const g=k=>C[k]||(C[k]={n:nm(k)||'Unspecified customer',cur:undefined,op:0,bef:0,frm:0,s:0,r:0});
+ D.cust.forEach(c=>{const f=ff(c),x=g(c.key);x.cur=num1(f,['balance','currentBalance'])??num1(c,['balance']);x.op=Number(f.openingBalance)||0});
+ const cof=it=>{const v=keyOf(it.customer);return v&&CK.has(v)?v:scan(it,CK)};
+ const adj=(k,d,v)=>{if(!k||!d)return;const c=g(k);if(d<F)c.bef+=v;else c.frm+=v};
+ D.si.forEach(x=>{const it=x.item||x,d=dt(it),k=cof(it);siC[x.key]=k;if(!k||!d)return;
+  const v=docAmt(it,'salesUnitPrice');adj(k,d,v);if(d>=F&&d<=T)g(k).s+=v});
+ D.cn.forEach(x=>{const it=x.item||x,k=cof(it);adj(k,dt(it),-docAmt(it,'salesUnitPrice'))});
+ D.rec.forEach(x=>{const it=x.item||x,d=dt(it);if(!d)return;
+  (it.lines||[]).forEach(l=>{if(!l.accountsReceivableCustomer&&!l.accountsReceivableSalesInvoice)return;
+   const k=keyOf(l.accountsReceivableCustomer)||siC[keyOf(l.accountsReceivableSalesInvoice)]||cof(it);if(!k)return;
+   const v=fxv(it,Number(l.amount)||0);adj(k,d,-v);if(d>=F&&d<=T)g(k).r+=v})});
+ const rows=Object.values(C).filter(c=>Math.abs(c.s)>0.004||Math.abs(c.r)>0.004)
+  .map(c=>[c.n,c.s,c.r,c.cur!==undefined?c.cur-c.frm:c.op+c.bef]).sort((a,b)=>b[1]-a[1]);
+ return cards([['Sales',sum(rows,1)],['Receipts',sum(rows,2)],['Previous balance',sum(rows,3)]])+
+  tbl(['Customer','Sales','Receipts','Balance (day before From)'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3)])+
+  `<div class="note">Only customers with an invoice or receipt in the period are listed. Balance = Manager's customer balance minus movements from the From date onward.</div>`}
 
 function rMov(){
  const M={};const g=k=>M[k]||(M[k]={n:nm(k)||'Item '+String(k).slice(0,6),iq:0,iv:0,oq:0,ov:0});
- const run=(docs,pk,inn)=>docs.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d<F||d>T)return;
-  (it.lines||[]).forEach(l=>{if(!l.item)return;const q=Number(l.qty)||0,v=fxv(it,lineAmt(l,pk)),m=g(l.item);
+ const run=(docs,inn)=>docs.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d<F||d>T)return;
+  (it.lines||[]).forEach(l=>{const k=itemK(l);if(!k)return;const q=Number(l.qty)||0,v=fxv(it,lineAmt(l,inn?'purchaseUnitPrice':'salesUnitPrice')),m=g(k);
    if(inn){m.iq+=q;m.iv+=v}else{m.oq+=q;m.ov+=v}})});
- run(D.pi,'purchaseUnitPrice',1);run(D.si,'salesUnitPrice',0);
- const rows=Object.values(M).map(m=>[m.n,m.iq,m.iv,m.oq,m.ov,m.iq-m.oq]).sort((a,b)=>(b[1]+b[3])-(a[1]+a[3]));
- return cards([['Qty in',sum(rows,1)],['Qty out',sum(rows,3)],['Net movement',sum(rows,5)]])+
-  tbl(['Item','Qty in','Value in','Qty out','Value out','Net qty'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3),sum(rows,4),sum(rows,5)])+
-  `<div class="note">In = purchase invoices, Out = sales invoices (item lines only).</div>`}
+ run(D.pay,1);run(D.si,0);
+ const rows=Object.values(M).map(m=>[m.n,m.iq,m.iv,m.oq,m.ov]).sort((a,b)=>(b[2]+b[4])-(a[2]+a[4]));
+ return cards([['Qty in',sum(rows,1)],['Value in',sum(rows,2)],['Qty out',sum(rows,3)],['Value out',sum(rows,4)]])+
+  tbl(['Item','Qty in','Value in','Qty out','Value out'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3),sum(rows,4)])+
+  `<div class="note">In = item lines on Payments in the period. Out = item lines on Sales Invoices in the period.</div>`}
 
 function rStock(){
- const S={};
- const run=(docs,pk,inn)=>docs.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d>T)return;
-  (it.lines||[]).forEach(l=>{if(!l.item)return;const L=l.location||l.inventoryLocation||l.warehouse||'',id=l.item+'|'+L;
-   const m=S[id]||(S[id]={n:nm(l.item)||'Item '+String(l.item).slice(0,6),l:L?(nm(L)||String(L).slice(0,8)):'—',q:0,pq:0,pv:0}),q=Number(l.qty)||0;
-   if(inn){m.q+=q;m.pq+=q;m.pv+=fxv(it,lineAmt(l,pk))}else m.q-=q})});
- run(D.pi,'purchaseUnitPrice',1);run(D.si,'salesUnitPrice',0);
- const rows=Object.values(S).filter(m=>Math.abs(m.q)>0.0001).map(m=>{const a=m.pq?m.pv/m.pq:0;return[m.n,m.l,m.q,a,m.q*a]}).sort((a,b)=>b[4]-a[4]);
- return cards([['Units on hand',sum(rows,2)],['Stock value (avg cost)',sum(rows,4)]])+
-  tbl(['Item','Location','On hand','Avg cost','Value'],rows,['Total','',sum(rows,2),'',sum(rows,4)])+
-  `<div class="note">Derived from purchase and sales invoices up to the "To" date. Opening stock and manual adjustments are not included.</div>`}
+ const rows=[];let found=false;const QK=['qtyOnHand','quantityOnHand','qtyOnhand','onHand','qty','quantity','balance'];
+ const ln=L=>!L?'—':(typeof L==='object'?(L.name||nm(L.key)):(nm(L)||String(L).slice(0,8)))||'—';
+ D.inv.forEach(a=>{const f=ff(a),n=nm(a.key)||f.itemName||f.name||'Item';
+  const arr=['locations','inventoryLocations','balances'].map(k=>f[k]).find(Array.isArray);
+  if(arr&&arr.length){arr.forEach(o=>{const q=num1(o,QK);if(q===undefined)return;found=true;rows.push([n,ln(o.location||o.inventoryLocation||o.warehouse),q])});return}
+  const q=num1(f,QK)??num1(a,QK);if(q===undefined)return;found=true;
+  rows.push([n,ln(f.location||f.inventoryLocation||f.warehouse),q])});
+ const r2=rows.filter(r=>Math.abs(r[2])>0.0001).sort((a,b)=>a[0].localeCompare(b[0]));
+ return(found?'':`<div class="warn">⚠ No quantity-on-hand field was found on the inventory items — see "Data check" below.</div>`)+
+  cards([['Total qty on hand',sum(r2,2)]])+tbl(['Item','Location','Qty on hand'],r2,['Total','',sum(r2,2)])+
+  `<div class="note">Qty on hand as held by Manager's Inventory tab (current stock, not date-filtered).</div>`}
 
 const BAD=['accountsReceivableCustomer','accountsPayableSupplier','capitalAccount','employee','fixedAsset','intangibleAsset','investment','interAccountTransferAccount','purchaseInvoice','accountsReceivableSalesInvoice','subAccount','specialAccount'];
 function rExp(){
  const E={};
- const add=(it,l,s)=>{const k=l.account;if(!k||BAD.some(b=>l[b]))return;if(D.pl.length&&!PL.has(k))return;
-  const v=fxv(it,Number(l.amount)||lineAmt(l,'purchaseUnitPrice')),e=E[k]||(E[k]={n:nm(k)||'Account '+String(k).slice(0,6),p:0,i:0});e[s]+=v};
- D.pay.forEach(x=>{const it=x.item||x,d=dt(it);if(d>=F&&d<=T)(it.lines||[]).forEach(l=>add(it,l,'p'))});
- D.pi.forEach(x=>{const it=x.item||x,d=dt(it);if(d>=F&&d<=T)(it.lines||[]).forEach(l=>{if(!l.item)add(it,l,'i')})});
- const rows=Object.values(E).map(e=>[e.n,e.p,e.i,e.p+e.i]).sort((a,b)=>b[3]-a[3]);
- return cards([['Total expenses',sum(rows,3)],['Paid directly',sum(rows,1)],['Via purchase invoices',sum(rows,2)]])+
-  tbl(['Expense account','Paid directly','Purchase invoices','Total'],rows,['Total',sum(rows,1),sum(rows,2),sum(rows,3)])}
+ D.pay.forEach(x=>{const it=x.item||x,d=dt(it);if(!d||d<F||d>T)return;
+  (it.lines||[]).forEach(l=>{const k=keyOf(l.account);if(!k||itemK(l)||BAD.some(b=>l[b]))return;
+   const v=fxv(it,Number(l.amount)||lineAmt(l,'purchaseUnitPrice')),e=E[k]||(E[k]={n:nm(k)||'Account '+String(k).slice(0,6),t:0});e.t+=v})});
+ const rows=Object.values(E).map(e=>[e.n,e.t]).sort((a,b)=>b[1]-a[1]);
+ return cards([['Total expenses',sum(rows,1)]])+tbl(['Expense account','Amount'],rows,['Total',sum(rows,1)])+
+  `<div class="note">Taken from the account lines of Payments dated within the period.</div>`}
+
+function diag(){
+ const L=Object.keys(D).map(n=>{const a=D[n],x=a[0]?ff(a[0]):null,l=x&&x.lines&&x.lines[0];
+  return`<tr><td>${n}</td><td class="n">${a.length}</td><td>${x?esc(Object.keys(x).join(', ')):'—'}${l?'<br><b>line:</b> '+esc(Object.keys(l).join(', ')):''}${ERR[n]?'<br><span class="neg">'+esc(ERR[n])+'</span>':''}</td></tr>`}).join('');
+ return`<details><summary>🔍 Data check (send me this if any figure still looks wrong)</summary><div class="sc"><table><thead><tr><th>Data</th><th class="n">Records</th><th>Fields found</th></tr></thead><tbody>${L}</tbody></table></div></details>`}
 
 /* ═══════════ UI state ═══════════ */
 let PROFILE=null,sel=new Set(['bank']),mode='multi';
@@ -284,9 +307,10 @@ async function go(){
   $('#status').textContent=`Showing ${F===T?F:F+' → '+T}`;
   $('#out').innerHTML=act.length?act.map(r=>{
    let body;try{body=r.fn()}catch(e){body=`<div class="warn">⚠ ${esc(e.message)}</div>`}
-   const er=r.needs.map(n=>ERR[n]).filter(Boolean);
+   const er=r.needs.filter(n=>!QUIET.includes(n)).map(n=>ERR[n]).filter(Boolean);
    return`<div class="rc"><h2>${r.label}</h2>${er.length?`<div class="warn">⚠ Some data could not be loaded (check this user's Manager permissions or endpoint names): ${esc(er.join(' · '))}</div>`:''}${body}</div>`}).join('')
    :'<div class="mt">Choose one or more reports from the dropdown.</div>';
+  if(act.length)$('#out').insertAdjacentHTML('beforeend',diag());
  }catch(e){$('#status').textContent='⚠ '+e.message}
  busy=false;if(again){again=false;go()}
 }
